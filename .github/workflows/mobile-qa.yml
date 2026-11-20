@@ -1,0 +1,32 @@
+name: Mobile QA (390px)
+
+on:
+  workflow_dispatch:
+    inputs:
+      urls:
+        description: "Comma-separated URLs to check"
+        required: false
+        default: "https://perfumeland.store/,https://perfumeland.store/tom-ford-oud-wood-edp,https://perfumeland.store/xerjoff-xj-1861-naxos-edp,https://perfumeland.store/maison-francis-kurkdjian-grand-soir-edp,https://perfumeland.store/kilian-angels-share-edp,https://perfumeland.store/maison-margiela-replica-by-the-fireplace-edt"
+
+permissions:
+  contents: read
+
+jobs:
+  mobile-qa:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm init -y && npm i playwright@latest
+      - run: npx playwright install --with-deps chromium
+      - name: Run mobile checks
+        run: node scripts/mobile-qa.mjs "${{ inputs.urls }}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mobile-qa-report
+          path: |
+            mobile-qa/report.json
+            mobile-qa/*.png
