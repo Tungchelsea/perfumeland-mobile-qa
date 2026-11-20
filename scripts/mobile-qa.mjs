@@ -1,5 +1,8 @@
 // Mobile QA: checks each URL at iPhone 13 viewport (390x844).
-// PASS criteria: innerWidth 390, no horizontal overflow, no broken images.
+// PASS criteria: innerWidth 390, no horizontal overflow, no images that
+// actually FAILED to load. Lazy below-fold images are scrolled into view
+// first so they load before being judged (v1 counted not-yet-loaded lazy
+// images as broken — false positives).
 import { chromium, devices } from 'playwright';
 import fs from 'node:fs';
 
@@ -18,12 +21,32 @@ for (const url of urls) {
   const slug = url.replace(/^https?:\/\//, '').replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '') || 'home';
   try {
     await page.goto(url, { waitUntil: 'networkidle', timeout: 60000 });
+    // Scroll through the whole page to trigger lazy-loaded images, then
+    // wait for them to finish loading before judging.
+    await page.evaluate(async () => {
+      await new Promise((resolve) => {
+        let y = 0;
+        const step = () => {
+          y += 500;
+          window.scrollTo(0, y);
+          if (y < document.body.scrollHeight) setTimeout(step, 120);
+          else { window.scrollTo(0, 0); resolve(); }
+        };
+        step();
+      });
+    });
+    await page.waitForLoadState('networkidle', { timeout: 30000 }).catch(() => {});
     await page.waitForTimeout(2000);
     const m = await page.evaluate(() => ({
+      finalUrl: window.location.href,
       innerWidth: window.innerWidth,
       scrollWidth: document.documentElement.scrollWidth,
       title: document.title,
-      brokenImages: [...document.images].filter(i => !i.complete || i.naturalWidth === 0).map(i => i.src.slice(0, 120)),
+      totalImages: document.images.length,
+      // Only an image that finished loading with zero width actually failed.
+      brokenImages: [...document.images].filter(i => i.complete && i.naturalWidth === 0).map(i => i.src.slice(0, 120)),
+      // Images still incomplete after the scroll + waits (informational only).
+      stillLoading: [...document.images].filter(i => !i.complete).map(i => i.src.slice(0, 120)),
       h1: document.querySelector('h1')?.innerText?.slice(0, 120) || null,
     }));
     await page.screenshot({ path: `${outDir}/${slug}.png`, fullPage: true });
